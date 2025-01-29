@@ -1,64 +1,86 @@
-import datetime
-from telegram import Update, ReplyKeyboardMarkup
+import logging
+from datetime import datetime
+from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import CallbackContext
-from db import save_user_data, save_chat_history
-from gemini import get_gemini_response, analyze_image
+from db import save_user_data, update_user_phone, save_chat_history, get_chat_history, save_file_metadata, \
+    users_collection
+from gemini import generate_gemini_response, generate_gemini_response_with_image, generate_gemini_summary
+from web_search import search_web
+from bot_logic import process_chat_message, process_image_message
 
-# Handle /start command
-async def start(update: Update, context: CallbackContext):
+logger = logging.getLogger(__name__)
+
+
+async def start(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
-    chat_id = update.message.chat.id
-    first_name = user.first_name
-    username = user.username
+    chat_id = update.message.chat_id
 
-    # Register user in MongoDB if not already registered
-    save_user_data(chat_id, first_name, username)
+    # Check if user already exists
+    if users_collection.find_one({"chat_id": chat_id}):
+        await update.message.reply_text("You're already registered! 🎉")
+        return
+
+    # Save user data in MongoDB
+    user_data = {
+        "chat_id": chat_id,
+        "first_name": user.first_name,
+        "username": user.username
+    }
+    save_user_data(user_data)
 
     # Ask for phone number
-    keyboard = [["📞 Share Phone Number"]]
+    keyboard = [[KeyboardButton("📞 Share Phone Number", request_contact=True)]]
     reply_markup = ReplyKeyboardMarkup(keyboard, one_time_keyboard=True, resize_keyboard=True)
 
-    await update.message.reply_text(f"Hi {first_name}, please share your phone number to complete registration.",
+    await update.message.reply_text(f"Hi {user.first_name}! Please share your phone number to complete registration.",
                                     reply_markup=reply_markup)
 
-# Handle phone number submission
-async def handle_contact(update: Update, context: CallbackContext):
+
+async def handle_contact(update: Update, context: CallbackContext) -> None:
     user = update.message.from_user
-    chat_id = update.message.chat.id
+    chat_id = update.message.chat_id
     phone_number = update.message.contact.phone_number
 
-    # Update phone number in MongoDB
-    save_user_data(chat_id, None, None, phone_number)
+    # Update user in MongoDB
+    update_user_phone(chat_id, phone_number)
 
     await update.message.reply_text("✅ Registration complete! You can now start chatting.")
 
-# Handle chat with Gemini (text input)
-async def chat_with_gemini(update: Update, context: CallbackContext):
+
+async def chat_with_gemini(update: Update, context: CallbackContext) -> None:
     user_input = update.message.text
-    chat_id = update.message.chat.id
+    user_id = update.message.from_user.id
 
-    # Get response from Gemini
-    bot_response = get_gemini_response(user_input)
+    bot_response, _ = await process_chat_message(user_id, user_input)
 
-    # Save chat history to MongoDB
-    timestamp = datetime.datetime.now()
-    save_chat_history(chat_id, user_input, bot_response, timestamp)
+    await update.message.reply_text(bot_response, disable_web_page_preview=True)
 
-    # Send response to user
+
+async def handle_image(update: Update, context: CallbackContext) -> None:
+    user_id = update.message.from_user.id
+    if update.message.photo:
+        photo = update.message.photo[-1]
+        file = await context.bot.get_file(photo.file_id)
+        file_name = file.file_path.split('/')[-1]
+        file_type = "photo"
+        image_data = await file.download_as_bytearray()
+        prompt = update.message.caption if update.message.caption else "What is this image about?"
+    elif update.message.document:
+        document = update.message.document
+        if not document.mime_type.startswith("image"):
+            await update.message.reply_text("Please send an image or a file with image")
+            return
+        file = await context.bot.get_file(document.file_id)
+        file_name = document.file_name
+        file_type = document.mime_type
+        image_data = await file.download_as_bytearray()
+        prompt = update.message.caption if update.message.caption else "What is this image about?"
+    else:
+        await update.message.reply_text("This was not an image")
+        return
+
+    bot_response = await process_image_message(user_id, prompt, image_data)
+    timestamp = datetime.utcnow()
+    save_file_metadata(user_id, file_name, file_type, bot_response, timestamp)
+
     await update.message.reply_text(bot_response)
-
-# Handle file analysis (image/file input)
-async def handle_image(update: Update, context: CallbackContext):
-    file = update.message.photo[-1].get_file()
-    file.download("image_to_analyze.jpg")
-
-    # Analyze image with Gemini
-    description = analyze_image("image_to_analyze.jpg")
-
-    # Save file metadata to MongoDB
-    chat_id = update.message.chat.id
-    timestamp = datetime.datetime.now()
-    save_chat_history(chat_id, "Image uploaded", description, timestamp)
-
-    # Send analysis description to user
-    await update.message.reply_text(f"Image description: {description}")
