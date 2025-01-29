@@ -3,3 +3,4 @@ __pycache__/
 .env
 *.log
 config.py
+encode_mongo_uri.py
