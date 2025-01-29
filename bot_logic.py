@@ -1,4 +1,3 @@
-# bot_logic.py
 from datetime import datetime
 from db import save_chat_history, get_chat_history
 from gemini import generate_gemini_response, generate_gemini_response_with_image, generate_gemini_summary
