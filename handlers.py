@@ -62,8 +62,8 @@ async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "chat_id": chat_id,
             "first_name": user.first_name,
             "username": user.username,
-            "phone_number": None,  # Initially no phone number
-            "timestamp": datetime.datetime.utcnow() # Add the timestamp field
+            "phone_number": None,
+            "timestamp": datetime.datetime.utcnow()
         }
         users_collection.insert_one(new_user)
         await context.bot.send_message(
