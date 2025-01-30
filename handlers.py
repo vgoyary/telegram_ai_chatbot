@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
-from telegram.ext import CallbackContext
+from telegram.ext import CallbackContext, ContextTypes
 from db import save_user_data, update_user_phone, save_chat_history, get_chat_history, save_file_metadata, \
     users_collection
 from gemini import generate_gemini_response, generate_gemini_response_with_image, generate_gemini_summary
@@ -36,16 +36,56 @@ async def start(update: Update, context: CallbackContext) -> None:
                                     reply_markup=reply_markup)
 
 
-async def handle_contact(update: Update, context: CallbackContext) -> None:
-    user = update.message.from_user
-    chat_id = update.message.chat_id
-    phone_number = update.message.contact.phone_number
+# async def handle_contact(update: Update, context: CallbackContext) -> None:
+#     user = update.message.from_user
+#     chat_id = update.message.chat_id
+#     phone_number = update.message.contact.phone_number
+#
+#     # Update user in MongoDB
+#     update_user_phone(chat_id, phone_number)
+#     await update.message.reply_text("✅ Registration complete! You can now start chatting.")
 
-    # Update user in MongoDB
-    update_user_phone(chat_id, phone_number)
+async def handle_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    chat_id = update.effective_chat.id
 
-    await update.message.reply_text("✅ Registration complete! You can now start chatting.")
+    if not user:
+        await context.bot.send_message(chat_id, text="User information not available.")
+        return
 
+    # Check if the user is already registered
+    existing_user = users_collection.find_one({"chat_id": chat_id})
+
+    if not existing_user:
+        # Create a new user document
+        new_user = {
+            "chat_id": chat_id,
+            "first_name": user.first_name,
+            "username": user.username,
+            "phone_number": None,  # Initially no phone number
+            "timestamp": datetime.datetime.utcnow() # Add the timestamp field
+        }
+        users_collection.insert_one(new_user)
+        await context.bot.send_message(
+            chat_id,
+            text=f"Hi {user.first_name}, welcome! I've registered your details.",
+        )
+        # Request Phone Number
+        await context.bot.send_message(
+             chat_id,
+            "Please share your contact info using the button below to continue.",
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton("Share Contact", request_contact=True)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
+        )
+
+    else:
+        await context.bot.send_message(
+            chat_id,
+            text="You are already registered!",
+        )
 
 async def chat_with_gemini(update: Update, context: CallbackContext) -> None:
     user_input = update.message.text
@@ -80,7 +120,7 @@ async def handle_image(update: Update, context: CallbackContext) -> None:
         return
 
     bot_response = await process_image_message(user_id, prompt, image_data)
-    timestamp = datetime.utcnow()
+    timestamp = datetime.datetime.utcnow()
     save_file_metadata(user_id, file_name, file_type, bot_response, timestamp)
 
     await update.message.reply_text(bot_response)

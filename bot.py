@@ -5,7 +5,7 @@ from pymongo import MongoClient
 from telegram import Update, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, CallbackContext
 from db import save_user_data, update_user_phone, users_collection, get_user_analytics
-from handlers import start, handle_contact, chat_with_gemini, handle_image
+from handlers import start, handle_start, chat_with_gemini, handle_image
 
 # Load environment variables
 load_dotenv()
@@ -36,7 +36,7 @@ if __name__ == "__main__":
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("dashboard", dashboard))
-    app.add_handler(MessageHandler(filters.CONTACT, handle_contact))
+    app.add_handler(MessageHandler(filters.CONTACT, handle_start))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_with_gemini))
     app.add_handler(MessageHandler(filters.PHOTO, handle_image))  # For images
     app.add_handler(MessageHandler(filters.Document.ALL, handle_image))  # For documents
