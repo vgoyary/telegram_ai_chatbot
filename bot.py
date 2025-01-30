@@ -21,7 +21,7 @@ async def dashboard(update: Update, context: CallbackContext) -> None:
     analytics = get_user_analytics()
 
     message = f"""
-  **Bot Analytics Dashboard**
+  Bot Analytics Dashboard
   --------------------------
   Total Registered Users: {analytics['total_users']}
   Total Chat Messages: {analytics['total_chats']}
